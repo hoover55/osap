@@ -40,6 +40,8 @@
 | F8 | 3- or 4-color e-ink display |
 | F9 | Physical controls: navigation, power, media (play/pause/skip), volume |
 | F10 | Battery powered, rechargeable |
+| F11 | Analog auxiliary audio input (3.5 mm line-in) |
+| F12 | All analog audio I/O connectors (headphone out, aux in) mounted on a removable daughterboard |
 
 ### 2.2 Non-functional targets (all TBD — set numeric goals before schematic capture)
 
@@ -69,7 +71,11 @@ flowchart LR
     ANT["2.4 GHz antenna"]
     DAC["Cirrus DAC<br/>(CS43131/CS43198 TBD)"]
     AMP["Headphone amp stage"]
-    JACK["Modular jack<br/>3.5 mm / 6.35 mm"]
+
+    subgraph DB["Audio I/O daughterboard"]
+        JACK["Headphone jack<br/>3.5 mm / 6.35 mm"]
+        AUX["Aux line-in<br/>3.5 mm"]
+    end
     SD1["microSD 1"]
     SD2["microSD 2"]
     EINK["3/4-color e-ink"]
@@ -79,6 +85,8 @@ flowchart LR
     PMIC -- "rails" --> APP
     USBC <-- "USB 2.0 HS" --> APP
     APP -- "I2S/TDM + I2C/SPI ctrl" --> DAC --> AMP --> JACK
+    AUX -. "pass-through (option)" .-> AMP
+    AUX -. "ADC record path (option)" .-> APP
     SD1 <--> APP
     SD2 <--> APP
     APP -- "SPI" --> EINK
@@ -115,10 +123,19 @@ flowchart LR
   - [ ] Decision matrix: power draw vs. drive capability vs. BOM complexity
 - **Headphone amplifier:** integrated (CS43131) or discrete stage (candidates: OPA1622,
   INA1620, TPA6120A2 — power-hungry). Must drive both IEMs and 1/4" high-impedance cans.
-- **Modular jack (F4):** options to evaluate —
-  - [ ] Single 3.5 mm + threaded/snap 6.35 mm adapter (thinnest)
-  - [ ] Swappable jack daughterboard (true modularity, mechanical cost)
-  - [ ] Balanced output (4.4 mm) in scope? TBD
+- **Audio I/O daughterboard (F4, F11, F12) — decided:** all analog connectors
+  (headphone output + 3.5 mm aux line-in) live on a removable daughterboard
+  - [ ] Output jack format on the board: single 3.5 mm + threaded/snap 6.35 mm adapter
+        vs dual jacks; swappable board variants later (e.g., 6.35 mm-only, balanced 4.4 mm)
+  - [ ] Board-to-board interconnect: FPC vs mezzanine connector — pin-out carries
+        headphone L/R + ground, aux L/R in + ground, jack-detect switches, shield
+  - [ ] Grounding/shielding: keep analog runs short, away from RF and digital busses
+- **Aux input (F11):** function to define at M0 — drives the DAC-vs-codec choice above
+  - [ ] Pass-through mode: analog switch routes aux → headphone amp (device doubles as
+        a portable amp; no digitization, near-zero added power)
+  - [ ] Record/digitize mode: ADC path (swap the DAC for a Cirrus codec with ADC, or
+        add a discrete line-in ADC) — enables recording to SD and BT re-streaming
+  - [ ] Or both — TBD
 - **Clocking:** 44.1 kHz vs 48 kHz families — single crystal + DAC PLL, dual crystals, or
   fractional PLL. TBD after DAC selection.
 - **Analog power:** dedicated low-noise LDO rails, ground/layout strategy, pop/click
@@ -216,6 +233,8 @@ flowchart LR
   DSD **TBD** (depends on DAC path choice)
 - [ ] Gapless playback, ReplayGain, EQ/DSP policy — TBD
 - [ ] Bit-perfect path definition (volume in DAC vs host) — TBD
+- [ ] Aux-in handling (if digitized per §4.2): capture path, record-to-SD and/or
+      BT re-stream — pending the pass-through vs record decision
 
 ### 5.6 Storage & filesystem
 
@@ -302,13 +321,14 @@ firmware/
 - **Dimensional targets:** ≈ **100 × 64 mm** footprint (compact-cassette sized,
   nominal 100.4 × 63.8 mm) × **10–20 mm** thick — aim for the low end of the
   thickness range; 20 mm is the hard ceiling
-- [ ] Verify fit: 6.35 mm jack barrel, microSD sockets, and e-ink module within the
-      10 mm best-case stack-up (jack body height is likely the floor-setter)
+- [ ] Verify fit: 6.35 mm jack barrel, aux jack, microSD sockets, and e-ink module
+      within the 10 mm best-case stack-up (jack body height is likely the floor-setter)
+- [ ] Audio I/O daughterboard: mounting/retention, connector alignment with enclosure
+      cutouts, swap/service access, interconnect strain relief
 - [ ] Display size constraint: cassette footprint supports roughly a 2.9–3.5" panel
       after bezel/button allowance — feeds §4.6 panel selection
 - [ ] Enclosure concept + materials (RF window needed if metal)
 - [ ] Stack-up study: battery + PCB + e-ink + jack = thickness floor
-- [ ] Jack module mechanical retention (per §4.2 decision)
 - [ ] Button feel, membrane vs discrete tact switches
 
 ## 7. Compliance & Licensing
@@ -342,6 +362,7 @@ firmware/
 | R7 | LC3 encode CPU load alongside decode + UI on app core | Performance | Profile on nRF54H20 DK |
 | R8 | USB MTP class not upstream in Zephyr — custom work if chosen over MSC | FW effort | §5.9 trade study at M1 |
 | R9 | SUIT-over-USB DFU transport maturity in NCS unverified | Update path | Verify NCS docs; SD-card fallback |
+| R10 | Aux-input function undefined (pass-through vs record) — drives DAC-vs-codec selection | Architecture | Decide at M0 (§4.2) |
 
 ## 10. Roadmap (draft)
 
