@@ -18,10 +18,11 @@
   2. Battery life
   3. Thinness
 - **Out of scope for v1 (TBD/confirm):** Wi-Fi, streaming services, touchscreen, camera
-- **Licenses:**
-  - Hardware: TBD (candidate: CERN-OHL-W)
-  - Firmware: TBD (candidate: Apache-2.0)
-  - Documentation: TBD (candidate: CC-BY-SA-4.0)
+- **Licenses (decided 2026-07-16 — 100% copyleft):**
+  - Hardware: **CERN-OHL-S-2.0** (strongly reciprocal)
+  - Firmware/software: **GPL-3.0-or-later**
+  - Documentation: **CC-BY-SA-4.0** (ShareAlike)
+  - Full texts in `LICENSES/`
 
 ## 2. Requirements
 
@@ -316,6 +317,10 @@ firmware/
 - [ ] Bluetooth SIG qualification (QDID) — budget line item
 - [ ] Battery transport (UN38.3), RoHS/REACH
 - [ ] Codec/FS patent review: exFAT, AAC (MP3 patents expired)
+- [ ] GPLv3 compatibility review: Apache-2.0 deps (Zephyr, liblc3) are one-way
+      compatible; Nordic's proprietary SoftDevice Controller blob on the radio core
+      needs review (mitigant: it's a separate image talking HCI over IPC, arguably a
+      separate program)
 
 ## 8. Repository Layout
 
@@ -434,7 +439,8 @@ firmware/
 | RED | Radio Equipment Directive — EU (CE) regulation covering intentional radio transmitters |
 | RoHS / REACH | EU regulations restricting hazardous substances / chemicals in products |
 | UN38.3 | UN transport-safety test standard required to ship lithium batteries |
-| CERN-OHL-W | CERN Open Hardware Licence, Weakly-reciprocal variant — candidate hardware license |
-| CC-BY-SA | Creative Commons Attribution-ShareAlike — candidate documentation license |
+| CERN-OHL-S | CERN Open Hardware Licence, Strongly-reciprocal variant — the project's hardware license (copyleft) |
+| GPL-3.0-or-later | GNU General Public License v3 (or later) — the project's firmware license (strong copyleft) |
+| CC-BY-SA | Creative Commons Attribution-ShareAlike — the project's documentation license (copyleft via ShareAlike) |
 - E-ink panel datasheets — TBD
 - nPM1300 PMIC: <https://www.nordicsemi.com/Products/nPM1300>

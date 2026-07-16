@@ -18,5 +18,8 @@ Pre-hardware. Requirements and architecture are being defined; no PCB or firmwar
 
 ## License
 
-TBD — see DESIGN.md §1 (candidates: CERN-OHL-W for hardware, Apache-2.0 for firmware,
-CC-BY-SA-4.0 for docs).
+100% copyleft:
+
+- **Hardware:** [CERN-OHL-S-2.0](LICENSES/CERN-OHL-S-2.0.txt)
+- **Firmware/software:** [GPL-3.0-or-later](LICENSES/GPL-3.0-or-later.txt)
+- **Documentation:** [CC-BY-SA-4.0](LICENSES/CC-BY-SA-4.0.txt)
