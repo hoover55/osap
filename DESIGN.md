@@ -108,10 +108,12 @@ flowchart LR
 ### 4.1 SoC — Nordic nRF54H20
 
 - 2 MB NVM / 1 MB RAM, USB 2.0 HS device, BLE 5.4 (LE Audio), 14-bit ADC
-- [ ] Verify I2S/TDM peripheral capabilities: master clock generation, supported rates,
-      audio-grade clocking (audio PLL?)
-- [ ] **Verify SD card interfacing** — does the H20 expose an SDMMC/SDIO host, or is SD
-      limited to SPI mode? (Throughput of two cards + USB HS offload hinges on this.)
+- [x] ~~Verify I2S/TDM~~ **Confirmed** (PoC-1 review): TDM peripheral with MCK output
+      pin, clocked from the on-chip **AUDIOPLL** — exact 22.5792/24.576 MHz attainability
+      and jitter still to be verified on hardware
+- [x] ~~Verify SD interfacing~~ **Confirmed** (PoC-1 review): **no SDMMC/SDIO host** —
+      SPI mode only, and I/O is 1.8 V-dominant (one 6-pin, ≤ 16 MHz 3.3 V-capable port);
+      see R1 for throughput implications
 - [ ] Package/variant selection, availability, and errata review
 - [ ] Chip-down vs. pre-certified module decision (affects RF cert cost, §7)
 
@@ -155,7 +157,9 @@ flowchart LR
 
 - [ ] Interface per slot (SDMMC 4-bit vs SPI — depends on §4.1 finding)
 - [ ] Push-push vs hinged sockets; card detect; hot-swap policy
-- [ ] Throughput target for USB file transfer (bottleneck analysis: SD ↔ SoC ↔ USB HS)
+- [ ] Throughput expectation-setting: SD-over-SPI (~1–3 MB/s) is the bottleneck, not
+      USB HS — a 128 GB card at ~1 MB/s ≈ 36 h to fill; decide if acceptable or revisit
+      architecture (R1)
 
 ### 4.5 USB-C
 
@@ -292,10 +296,11 @@ flowchart LR
 
 ### 5.13 DFU & updates
 
-- **SUIT**-based DFU (the nRF54H20 scheme — MCUboot is not supported on H20):
-  signed manifests covering app + radio images, processed by the secure domain
-- Transport: USB (mechanism **TBD** — verify current NCS options for SUIT over USB;
-  fallback: firmware file dropped on SD card, applied at boot)
+- **MCUboot + IronSide SE** (NCS ≥ 3.1): Nordic removed SUIT in NCS 3.1 (2025) and
+  replaced the H20's SUIT-based Secure Domain Firmware with **IronSide SE**; MCUboot
+  (direct-XIP or swap, app+radio merged image) is the supported H20 bootloader
+- Transport: SMP over USB (CDC) — **TBD** confirm; fallback: firmware file dropped on
+  SD card, applied at boot
 - Recovery path and anti-rollback policy — TBD
 
 ### 5.14 Observability & testing
@@ -342,6 +347,8 @@ firmware/
       compatible; Nordic's proprietary SoftDevice Controller blob on the radio core
       needs review (mitigant: it's a separate image talking HCI over IPC, arguably a
       separate program)
+- [ ] `nrf_fuel_gauge` (Nordic-5-Clause **binary** lib) links directly into the GPL app
+      image — cannot ship; replace with an open gauge implementation before EVT (R12)
 
 ## 8. Repository Layout
 
@@ -354,7 +361,7 @@ firmware/
 
 | # | Risk / question | Impact | Next step |
 |---|---|---|---|
-| R1 | nRF54H20 SD interface may be SPI-only | Slow library scans + USB transfers | Read datasheet; prototype throughput |
+| R1 | **Confirmed** (PoC-1 review): no SDMMC host — SD is SPI-mode only (≤ 25 MHz), and 3.3 V signaling needs a level shifter or the six ≤ 16 MHz P9 pins → ~1–3 MB/s ceiling; USB file transfer will be SD-bound | Slow library scans + USB transfers | PoC-1 O1 measures real throughput; revisit architecture if unacceptable |
 | R2 | LE Audio only — no Classic A2DP; older BT headphones won't connect | Compatibility | Accept & document, or revisit BT companion chip |
 | R3 | Color e-ink refresh latency hurts browsing UX | Usability | Panel eval; grayscale partial refresh |
 | R4 | nRF54H20 silicon maturity / availability | Schedule | Check distributor stock + errata |
@@ -362,8 +369,10 @@ firmware/
 | R6 | Amp choice vs battery life (TPA6120A2-class draw) | Battery target | Power budget before DAC/amp decision |
 | R7 | LC3 encode CPU load alongside decode + UI on app core | Performance | Profile on nRF54H20 DK |
 | R8 | USB MTP class not upstream in Zephyr — custom work if chosen over MSC | FW effort | §5.9 trade study at M1 |
-| R9 | SUIT-over-USB DFU transport maturity in NCS unverified | Update path | Verify NCS docs; SD-card fallback |
+| R9 | DFU transport (SMP-over-USB with MCUboot/IronSide SE) on the H20 unverified — SUIT was removed in NCS 3.1 | Update path | Pin NCS ≥ 3.1; verify; SD-card fallback (PoC-1 O7) |
 | R10 | Aux-input function undefined (pass-through vs record) — drives DAC-vs-codec selection | Architecture | Decide at M0 (§4.2) |
+| R11 | NCS LE Audio applications support only the nRF5340 (no H20) as of mid-2026 | BT audio schedule | Prove chain on nRF5340 Audio DK; track Nordic roadmap (PoC-1 P8) |
+| R12 | Nordic `nrf_fuel_gauge` is a proprietary binary lib — GPL-incompatible in distributed firmware | Licensing | Open-source gauge implementation for EVT (§7) |
 
 ## 10. Roadmap (draft)
 
@@ -447,7 +456,8 @@ firmware/
 | NVM | Non-Volatile Memory — generic term for on-chip persistent storage |
 | SDMMC / SDIO | Native 4-bit SD card bus interfaces (vs. slow SPI fallback mode) — availability on the H20 is open question R1 |
 | DFU | Device Firmware Update |
-| SUIT | Software Updates for Internet of Things — IETF update standard; the H20's DFU mechanism |
+| SUIT | Software Updates for Internet of Things — IETF standard; was the H20's original DFU scheme, removed from NCS in 3.1 in favor of MCUboot |
+| IronSide SE | Nordic's secure-domain firmware for the nRF54H20 (NCS 3.1+), replacing the SUIT-based Secure Domain Firmware |
 | DMA | Direct Memory Access — peripheral data transfer without CPU involvement; keeps the audio path low-power |
 | RTT | Real-Time Transfer — SEGGER debug-probe channel used for log output |
 | DK | Development Kit (e.g., nRF54H20 DK) |
