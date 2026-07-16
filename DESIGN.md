@@ -145,7 +145,8 @@ flowchart LR
 
 - Single-cell Li-Po pouch (thin form factor drives selection) — capacity **TBD** mAh
 - PMIC/charger candidate: **nPM1300** (USB-C CC detection, 800 mA charger, fuel gauging,
-  pairs with Nordic SoCs) — [ ] confirm rail budget fits, else discrete charger + gauge
+  pairs with Nordic SoCs) — being validated on **[PoC-1](POC1.md)** (objective O8);
+  [ ] confirm rail budget fits, else discrete charger + gauge
 - USB-C power: 5 V default + BC1.2/CC detection; USB-PD **TBD** (likely unnecessary)
 - [ ] Power budget table: decode+playback, BT streaming, e-ink refresh, sleep, off
 - E-ink draws zero power when static — key enabler for the battery-life target
