@@ -12,6 +12,9 @@ firmware are fully open source.
 📄 **Start here: [DESIGN.md](DESIGN.md)** — the v1 design document (early
 architecture; open questions tracked in its §9).
 
+🔬 **[POC1.md](POC1.md)** — first proof-of-concept board: Ezurio 453-00198R
+(BL54H20 / nRF54H20 module) + Cirrus CS43131.
+
 ## Status
 
 Pre-hardware. Requirements and architecture are being defined; no PCB or firmware yet.

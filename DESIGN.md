@@ -367,8 +367,9 @@ firmware/
 ## 10. Roadmap (draft)
 
 - **M0** — Requirements finalized (fill every TBD in §2.2)
-- **M1** — Dev-kit bring-up: nRF54H20 DK + Cirrus DAC eval board + e-ink module;
-  local playback proof of concept
+- **M1** — Proof-of-concept bring-up — see spin-off doc **[POC1.md](POC1.md)**:
+  custom board with Ezurio 453-00198R (BL54H20 / nRF54H20 module) + CS43131;
+  local playback and LE Audio proof, retires risks R1/R6/R7/R9
 - **M2** — LE Audio streaming to headphones from DK
 - **M3** — EVT board: first custom PCB (schematic in KiCad, `osaplib` symbols)
 - **M4** — DVT: enclosure + battery integration, power/audio measurements vs targets
