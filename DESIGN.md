@@ -35,7 +35,7 @@
 | F3 | Built-in headphone amplifier |
 | F4 | Modular headphone jack accommodating 1/8" (3.5 mm) and 1/4" (6.35 mm) connectors |
 | F5 | Wireless audio output to Bluetooth headphones/speakers — Classic A2DP via on-board wireless module (DNP variant = radio-less build; LE Audio as a future addition) |
-| F6 | 2× microSD card slots |
+| F6 | 1× microSD card slot (was 2× — reduced 2026-07-18 to free USDHC1 for the radio) + **internal serial NAND storage** (§4.4) |
 | F7 | USB-C: battery charging + USB 2.0 high-speed (480 Mbps) data for file transfer |
 | F8 | 3- or 4-color e-ink display |
 | F9 | Physical controls: navigation, power, media (play/pause/skip), volume |
@@ -81,8 +81,8 @@ flowchart LR
         JACK["Headphone jack<br/>3.5 mm / 6.35 mm"]
         AUX["Aux line-in<br/>3.5 mm"]
     end
-    SD1["microSD 1 (USDHC0)"]
-    SD2["microSD 2 (USDHC1,<br/>muxed w/ radio SDIO)"]
+    SD["microSD (USDHC0)"]
+    NAND["Serial NAND<br/>xSPI1, 1–8 Gbit"]
     EINK["3/4-color e-ink"]
     BTNS["Buttons"]
 
@@ -94,11 +94,11 @@ flowchart LR
     MCU -- "I2S + MCLK + I2C" --> DAC --> JACK
     AUX -. "pass-through switch (option)" .-> JACK
     AUX -. "ADC record path (option)" .-> MCU
-    SD1 <--> MCU
-    SD2 <--> MCU
+    SD <--> MCU
+    NAND <--> MCU
     MCU -- "SPI" --> EINK
     BTNS --> MCU
-    MCU <-- "SDIO Wi-Fi + UART HCI BT" --> RADIO
+    MCU <-- "SDIO Wi-Fi (USDHC1) + UART HCI BT" --> RADIO
 ```
 
 ### 3.1 Compute allocation
@@ -121,9 +121,9 @@ flowchart LR
 - **Chosen over RT600 for longevity + lower power** (2026-07-17); trade-off: younger
   silicon and Zephyr support (R11)
 - **uSDHC SD/eMMC/SDIO hosts** — [ ] **confirm instance count in the RM** (expected 2:
-  USDHC0 + USDHC1); supports eMMC 5.0 HS400. Allocation: card 1 → USDHC0; card 2 →
-  USDHC1 **muxed with the radio module's SDIO** (analog mux, per NXP's own RT700-EVK
-  which shares USDHC1 the same way via TMUX136) — see R14
+  USDHC0 + USDHC1); supports eMMC 5.0 HS400. Allocation: **card → USDHC0; radio
+  SDIO → USDHC1 (dedicated — no mux)**. Two of the three xSPI ports are spare →
+  internal-NVM expansion option (§4.4)
 - USB 2.0 HS via **eUSB2** (1.2 V signaling, same 480 Mbps protocol) — requires an
   **eUSB2→USB 2.0 repeater** at the connector (§4.5)
 - Audio: [ ] **verify SAI/I2S MCLK output pin and audio-PLL exact rates** vs the
@@ -178,14 +178,24 @@ flowchart LR
 - [ ] Power budget table: decode+playback, BT streaming, e-ink refresh, sleep, off
 - E-ink draws zero power when static — key enabler for the battery-life target
 
-### 4.4 Storage — 2× microSD
+### 4.4 Storage — 1× microSD + optional internal NAND
 
-- **Native 4-bit SD** on the RT700's uSDHC hosts — card 1 on USDHC0; card 2 on
-  USDHC1 **shared with the radio module's SDIO via analog mux** (R14; RT700-EVK
-  precedent). 3.3 V signaling, no level shifters; ~10+ MB/s-class per slot expected
-  (USB transfers become card-bound, not interface-bound) — benchmark at EVT-1 (E2/E3)
+- **Native 4-bit SD on USDHC0** (single slot — reduced from two on 2026-07-18 so
+  USDHC1 serves the radio SDIO directly, eliminating the analog mux). 3.3 V
+  signaling, no level shifters; ~10+ MB/s-class expected (USB transfers become
+  card-bound, not interface-bound) — benchmark at EVT-1 (E2/E3)
 - [ ] UHS-I 1.8 V switching: evaluate (power/perf trade)
-- [ ] Push-push vs hinged sockets; card detect; per-slot power switches (hot-swap + sleep)
+- [ ] Push-push vs hinged socket; card detect; slot power switch (hot-swap + sleep)
+- **Internal serial NAND (decided 2026-07-18)** on **xSPI1** (one of the two spare
+  ports): **QSPI/octal serial NAND, 1–8 Gbit**, running **littlefs** (built-in wear
+  leveling, power-fail safe). Roles: music DB/index (survives card swaps), album-art
+  cache, settings backup, small built-in library partition.
+  - Host access note: littlefs is invisible to USB MSC — internal content is only
+    host-reachable via **MTP** (feeds the §5.9 trade study)
+  - [ ] Part + capacity selection at M1 (R14): QSPI vs octal, 1/2/4/8 Gbit,
+        candidates Winbond W25N/W35N-class, Macronix MX35-class
+  - Rejected alternatives: large octal NOR (poor cost/GB), eMMC (needs a uSDHC host;
+    both known instances are taken)
 
 ### 4.5 USB-C
 
@@ -215,7 +225,7 @@ flowchart LR
 
 - **u-blox MAYA-W260-00B**: NXP **IW611** (2.4/5 GHz 1×1 Wi-Fi 6 + **dual-mode
   BT 5.4**), 86-pin BFLGA 10.4 × 14.3 mm, **2× U.FL antenna connectors** (Wi-Fi + BT);
-  host interfaces: SDIO 3.0 (Wi-Fi, muxed — R14) + flow-controlled UART (BT HCI)
+  host interfaces: SDIO 3.0 (Wi-Fi, **dedicated USDHC1**) + flow-controlled UART (BT HCI)
 - Pre-certified module preserves modular RF certification — [ ] antennas from
   u-blox's approved list; keep-out and coax routing per integration manual
 - **DNP build variant** = radio-less SKU (unintentional-radiator cert only)
@@ -231,7 +241,7 @@ flowchart LR
 - **Build:** `west` workspace, single-image app build; optional separate HiFi4 DSP
   build (§5.2)
 - **Configuration:** custom Zephyr **board definition** `osap_v1` (devicetree +
-  Kconfig) — DAC on I2S + I2C, e-ink on SPI, `gpio-keys`, SDHC nodes per slot,
+  Kconfig) — DAC on I2S + I2C, e-ink on SPI, `gpio-keys`, SDHC nodes (card + radio),
   PCA9422 regulators, MAYA-W260 on SDIO + UART
 - **Toolchain/CI:** Zephyr SDK container; GitHub Actions build + Twister on every PR
 
@@ -265,7 +275,7 @@ flowchart LR
 | Audio datapath | High (cooperative) | Feed I2S DMA or SBC framing; hard real-time |
 | Decoder | Medium | File → PCM into ring buffer (target **TBD** ms of buffered audio) |
 | UI (LVGL) | Low | Screen updates, e-ink refresh scheduling |
-| Library indexer | Lowest | Background scan/tag parse of both cards |
+| Library indexer | Lowest | Background scan/tag parse of the card + internal NAND |
 | BT host / USB / input | Zephyr-managed | Stack work queues |
 
 ### 5.5 Audio pipeline & codecs
@@ -282,16 +292,17 @@ flowchart LR
 
 ### 5.6 Storage & filesystem
 
-- Zephyr disk-access + **FatFs**; two mount points (`/SD0`, `/SD1`) presented as one
-  logical library
+- Zephyr disk-access + **FatFs** for the card (`/SD0`); the internal NAND mounts
+  as a **littlefs** volume (`/NAND0`) — both presented as one logical library
 - FAT32 baseline; **exFAT TBD** (FatFs supports it behind a config flag, but it is
   patent-encumbered — licensing decision needed for >32 GB cards as shipped)
 - Card hot-insert/removal handling and index invalidation — TBD
 
 ### 5.7 Music library / database
 
-- On-device index of both cards: tags (ID3/Vorbis/FLAC comments), album/artist trees,
-  playlists (M3U), resume positions
+- On-device index of the card + internal NAND: tags (ID3/Vorbis/FLAC comments),
+  album/artist trees, playlists (M3U), resume positions — the index itself lives on
+  the internal NAND (survives card swaps, faster boot)
 - Format: custom compact binary index vs embedded DB — **TBD** (SQLite likely too heavy;
   benchmark at M1)
 
@@ -373,7 +384,7 @@ firmware/
 - **Dimensional targets:** ≈ **100 × 64 mm** footprint (compact-cassette sized,
   nominal 100.4 × 63.8 mm) × **10–20 mm** thick — aim for the low end of the
   thickness range; 20 mm is the hard ceiling
-- [ ] Verify fit: 6.35 mm jack barrel, aux jack, microSD sockets, and e-ink module
+- [ ] Verify fit: 6.35 mm jack barrel, aux jack, microSD socket, and e-ink module
       within the 10 mm best-case stack-up (jack body height is likely the floor-setter)
 - [ ] Audio I/O daughterboard: mounting/retention, connector alignment with enclosure
       cutouts, swap/service access, interconnect strain relief
@@ -423,7 +434,7 @@ firmware/
 | R11 | RT700 is young: thin errata history, newer Zephyr port, uSDHC instance count and packages unverified | Schedule/rework | RM + datasheet review at M1; RT700-EVK bring-up early |
 | R12 | HiFi4 Xtensa toolchain is proprietary (sense-subsystem HiFi1 likewise) | Open-source ethos | DSP strictly optional; M33 baseline full-featured (§7) |
 | R13 | Wi-Fi capability invites scope creep (streaming, sync) | Focus | Deferred past v1; revisit at DVT with product hat on |
-| R14 | Card 2 shares a uSDHC with the radio SDIO via analog mux — Wi-Fi and card 2 can't run concurrently | Future Wi-Fi UX | Follow the RT700-EVK TMUX136 precedent; acceptable for v1 (Wi-Fi deferred, BT uses UART) |
+| R14 | Internal NAND part/capacity unselected; internal content is MTP-only for hosts | Storage BOM + USB UX | Part study at M1 (§4.4); MTP implication feeds the R8/§5.9 trade |
 
 ## 10. Roadmap (draft)
 
@@ -431,7 +442,8 @@ firmware/
 - **M1** — Dev-kit prototyping: MIMXRT700-EVK + MAYA-W2 EVK + CS43131 eval
   board; local playback + **A2DP source proof** (retires R1); RM verifications
   (R6/R7/R11); u-blox lifecycle confirmation (R9)
-- **M2** — E-ink UI, dual-SD, and USB MSC/MTP working on the EVK bench
+- **M2** — E-ink UI, SD + internal NAND (littlefs), and USB MSC/MTP working on the
+  EVK bench
 - **M3** — **EVT-1**: first custom PCB, full feature set — see **[EVT1.md](EVT1.md)**
   (schematic in KiCad, `osaplib` symbols)
 - **M4** — DVT: enclosure + battery integration, power/audio measurements vs targets
@@ -504,7 +516,8 @@ firmware/
 |---|---|
 | HiFi4 / HiFi1 | Cadence Tensilica audio DSP cores in the RT700 (main + low-power sense subsystem) — optional offload only |
 | XIP | eXecute In Place — running code directly from the external xSPI NOR boot flash |
-| SDIO / SDMMC | Native 4-bit SD card bus interfaces — RT700 uSDHC hosts; card 2 shares one with the radio module via mux (R14) |
+| SDIO / SDMMC | Native 4-bit SD card bus interfaces — RT700 uSDHC hosts: card on USDHC0, radio on USDHC1 |
+| littlefs | Fail-safe, wear-leveling embedded filesystem — used on the internal NAND (not host-readable over USB MSC; MTP only) |
 | NVS | Non-Volatile Storage — Zephyr settings backend on a NOR-flash partition |
 | NVM | Non-Volatile Memory — generic term for persistent storage |
 | IPC | Inter-Processor Communication — M33 ↔ HiFi4 mailbox/shared-SRAM messaging (DSP build only) |

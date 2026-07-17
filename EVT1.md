@@ -36,8 +36,8 @@ proprietary — see §7 firmware policy and parent R12.
 
 | # | Objective | Exit criterion |
 |---|---|---|
-| E1 | Full local audio path on final architecture: 2× SD → decode → I2S → CS43131 → audio I/O daughterboard | 24/96 FLAC gapless, glitch-free 1 h; both cards mounted simultaneously |
-| E2 | Native SD throughput | Sustained read ≥ **10 MB/s** per slot (4-bit SD, HS timing); benchmark published to parent R1 |
+| E1 | Full local audio path on final architecture: SD → decode → I2S → CS43131 → audio I/O daughterboard | 24/96 FLAC gapless, glitch-free 1 h |
+| E2 | Native SD throughput (USDHC0) | Sustained read ≥ **10 MB/s** (4-bit SD, HS timing); benchmark published to parent §4.4 |
 | E3 | USB 2.0 HS mass-storage/MTP transfer rate | ≥ **8 MB/s** host-visible on a UHS-I card (SD-bound, not USB-bound) |
 | E4 | E-ink UI + full control set (nav/power/media/volume) usable for browse + playback | Screen map v1 navigable; partial-refresh browsing < **TBD** ms/page |
 | E5 | Power/battery: measured per-state draw vs parent §4.3 budget; battery life projection | ≥ **TBD** h local playback projected from measurements; ship-mode ≤ **TBD** µA |
@@ -45,12 +45,14 @@ proprietary — see §7 firmware policy and parent R12.
 | E7 | **Bluetooth Classic A2DP source** to ordinary headphones via Zephyr Classic host (module fitted) | SBC stream to a consumer BT headphone ≥ 30 min |
 | E8 | Audio quality vs CS43131 32 Ω datasheet figures (125 dB DR, −110 dB THD+N) | Meets §8 instrumentation sanity bounds; AP-class verification at this stage if instrument access secured |
 | E9 | Aux line-in path per parent F11 decision (pass-through and/or ADC) | Selected mode(s) functional end-to-end |
+| E10 | Internal NAND: littlefs volume + library-index residency | Mounts reliably; index read/write across power cycles; throughput ≥ **TBD** MB/s |
 
 ## 3. Scope
 
 **In scope (full product feature set):** RT700 + xSPI boot flash, CS43131 on the
 **audio I/O daughterboard interconnect** (parent F12: headphone out + aux in),
-**2× microSD on native SD hosts**, USB-C (charge + USB 2.0 HS), PMIC + Li-Po battery,
+**1× microSD on USDHC0 + internal serial NAND on xSPI1** (parent §4.4),
+USB-C (charge + USB 2.0 HS), PMIC + Li-Po battery,
 3/4-color e-ink display, full button set, **u-blox MAYA-W260-00B module + 2× U.FL
 antennas** (DNP build variant = radio-less SKU), SWD debug.
 
@@ -73,8 +75,8 @@ flowchart LR
     ANT1["U.FL antenna (Wi-Fi)"]
     ANT2["U.FL antenna (BT)"]
     DAC["CS43131<br/>DAC + HP amp"]
-    SD1["microSD 1<br/>(USDHC0, 4-bit)"]
-    SD2["microSD 2<br/>(USDHC1, 4-bit,<br/>muxed w/ radio SDIO)"]
+    SD["microSD<br/>(USDHC0, 4-bit)"]
+    NAND["Serial NAND<br/>(xSPI1, littlefs)"]
     EINK["3/4-color e-ink (SPI)"]
     BTNS["Nav / media / volume buttons"]
     SWD["SWD debug"]
@@ -94,8 +96,8 @@ flowchart LR
     MCU <--> FLASH
     MCU -- "I2S + MCLK (audio PLL) + I2C" --> DAC --> JACK
     AUX -. "per parent F11 decision" .-> DAC
-    SD1 <--> MCU
-    SD2 <--> MCU
+    SD <--> MCU
+    NAND <--> MCU
     MCU -- "SPI" --> EINK
     BTNS --> MCU
     SWD --- MCU
@@ -112,7 +114,7 @@ flowchart LR
 |---|---|
 | Cores | Main Cortex-M33 @ 325 MHz + **HiFi4 DSP**; **sense subsystem**: M33 @ 250 MHz + HiFi1 DSP; eIQ Neutron NPU + 2.5D GPU (JPEG/PNG decode) |
 | Memory | **7.5 MB on-chip SRAM**; no internal flash → 3× xSPI for external NOR (up to 16-bit DDR @ 250 MHz), XIP |
-| Storage I/F | uSDHC SD/eMMC/SDIO hosts — [ ] **confirm instance count** (expected USDHC0 + USDHC1); supports eMMC 5.0 HS400. Card 1 → USDHC0; card 2 → USDHC1 **muxed with radio SDIO** (TMUX136-class, RT700-EVK precedent; parent R14) |
+| Storage I/F | uSDHC SD/eMMC/SDIO hosts — [ ] **confirm instance count** (expected USDHC0 + USDHC1); supports eMMC 5.0 HS400. Card → USDHC0; radio SDIO → **USDHC1 dedicated (no mux)**; **serial NAND on xSPI1** (parent §4.4) |
 | USB | USB 2.0 **high-speed (480 Mbps)** via **eUSB2** (1.2 V signaling) → external eUSB2→USB 2.0 repeater required at the connector (§6) |
 | Audio | [ ] Verify SAI/I2S count, **MCLK output pin**, and audio-PLL exact 22.5792/24.576 MHz + jitter vs CS43131 direct-MCLK mask (else CS43131 PLL-ref mode; parent R7) |
 | I/O voltage | [ ] Verify VDDIO domain ranges/count — SD at native 3.3 V expected, confirm per-domain assignment for SD/e-ink/radio module |
@@ -135,7 +137,7 @@ targets. The RT700's audio-PLL MCLK output is the intended clock source (§5.1 v
 | Silicon | NXP **IW611**: 2.4/5 GHz 1×1 Wi-Fi 6 + **dual-mode Bluetooth 5.4** (BR/EDR + LE) — [ ] confirm chipset variant and that 802.15.4 is absent/not needed (IW612 sibling has it) |
 | Package | **86-pin BFLGA, 10.4 × 14.3 mm**, surface-mount — replaces the earlier M.2-socket concept; **DNP build variant** keeps a radio-less SKU |
 | Antennas | **-00B variant = 2× U.FL connectors** (Wi-Fi + BT), antennas not included — [ ] select from u-blox's approved-antenna list to retain modular certification |
-| Host interfaces | **SDIO 3.0** (Wi-Fi, shares USDHC1 with card 2 via mux — parent R14) + **UART** (BT HCI, flow-controlled); host-based stack → Zephyr Classic host on the RT700 (E7) |
+| Host interfaces | **SDIO 3.0** (Wi-Fi, dedicated USDHC1) + **UART** (BT HCI, flow-controlled); host-based stack → Zephyr Classic host on the RT700 (E7) |
 | Support signals | WL/BT enables, host-wake IRQs, **32.768 kHz sleep clock** ([ ] source from PMIC/RTC), 3.3 V supply ([ ] VIO level check vs RT700 domains) |
 | Certification | u-blox professional-grade module with global RF certifications ([ ] confirm scope + antenna list for FCC/CE) |
 | Availability | [ ] **Verify lifecycle/stock with u-blox** — one distributor listing flagged availability concerns (V6) |
@@ -164,7 +166,7 @@ was RT600-native pairing).
 - **Power (PCA9422-centered) — rail sketch, verify all:**
   - SW1 buck → RT700 main VDDCORE; SW3 buck → sense/aux core domain ([ ] voltages/
     DVS mapping per RM)
-  - SW2 buck → **3.3 V system** (SD ×2, e-ink, eUSB repeater USB side)
+  - SW2 buck → **3.3 V system** (SD, optional NAND, e-ink, eUSB repeater USB side)
   - LDO2/LDO3 → 1.8 V digital/VDDIO domains; LDO1 (always-on, 10 mA) → standby domain
   - **Buck-boost → CS43131 VP** at ≈3.4–3.6 V — stable above the 3.3 V HV_EN
     threshold over the whole discharge curve ([ ] current rating vs VP peaks);
@@ -184,11 +186,12 @@ was RT600-native pairing).
   repeater** (place near connector) → 3.3 V D+/D− → receptacle
   ([ ] repeater straps/I2C config, supply rails, layout per TI datasheet;
   [ ] crib NXP's RT700-EVK repeater reference design)
-- **microSD ×2:** native 4-bit at 3.3 V — card 1 on USDHC0; card 2 on USDHC1
-  **through a TMUX136-class analog mux shared with the MAYA-W260's SDIO**
-  (RT700-EVK precedent; parent R14 — Wi-Fi and card 2 are mutually exclusive)
-  ([ ] UHS-I 1.8 V switch — only if the power/perf case closes; card-detect;
-  per-slot power switches for hot-swap and sleep)
+- **microSD:** native 4-bit at 3.3 V on USDHC0 — radio SDIO gets USDHC1 outright,
+  no mux ([ ] UHS-I 1.8 V switch — only if the power/perf case closes; card-detect;
+  slot power switch for hot-swap and sleep)
+- **Internal NAND:** QSPI/octal serial NAND on **xSPI1** (1–8 Gbit; littlefs) —
+  [ ] part/capacity per parent R14 study; decoupling + layout per vendor;
+  test points on CS/CLK
 - **Audio I/O daughterboard interconnect:** per parent §4.2 — headphone L/R + ground,
   aux L/R in + ground, jack detects, shield ([ ] FPC vs mezzanine decision lands here)
 - **E-ink:** SPI + control GPIO at panel voltage ([ ] confirm RT700 VDDIO domain
@@ -226,7 +229,9 @@ was RT600-native pairing).
 
 ## 8. Test & measurement plan
 
-- SD: per-slot + simultaneous dual-card sequential/random benchmarks (E2); USB MSC/MTP
+- SD: sequential/random benchmarks on USDHC0 (E2), concurrent with radio-SDIO traffic
+  once Wi-Fi firmware loads; NAND littlefs throughput + power-cycle integrity (E10);
+  USB MSC/MTP
   host-side transfer timing (E3)
 - Audio: sanity bounds on a bench audio interface (a typical USB interface cannot
   resolve datasheet-grade figures — treat as bounds only); AP-class session for E8
@@ -247,7 +252,7 @@ was RT600-native pairing).
 | V4 | Audio PLL exact-rate/jitter for CS43131 direct-MCLK mode | Verify in RM; fallback CS43131 PLL-ref mode (relaxed phase-noise mask) |
 | V5 | ~~RT700 supersedes RT600~~ | **Resolved 2026-07-17:** switched to RT700 for longevity; residual newness risk tracked as parent R11 |
 | V9 | eUSB2 repeater is a new design element (straps, SI, supplies) | Copy the RT700-EVK repeater reference design; TUSB2E11 datasheet review |
-| V10 | uSDHC instance count unconfirmed; card 2 ↔ radio SDIO mux concurrency | RM check at M1; TMUX136-class mux per EVK precedent (parent R14) |
+| V10 | uSDHC instance count unconfirmed (need 2: card + radio) | RM check at M1 — if only one exists, the architecture needs rework |
 | V6 | MAYA-W260-00B lifecycle/availability — a distributor listing flagged concerns | Confirm status + longevity commitment with u-blox before layout; sibling variants (MAYA-W261 antenna-pin, IW612-based W2 variants) as fallback |
 | V7 | ~~Parent F5 wording change~~ | **Resolved 2026-07-17:** architecture adopted project-wide; parent DESIGN.md updated |
 | V8 | Wi-Fi capability invites scope creep (streaming, sync) | Explicitly deferred; revisit at DVT with product hat on |
@@ -261,13 +266,13 @@ was RT600-native pairing).
 | U3 | Octal-SPI NOR flash (**TBD**, ≥ 16 MB) | XIP boot + OTA slots |
 | U4 | NXP **PCA9422** | 640 mA charger, power path, 3 bucks + buck-boost + 4 LDOs, gauge measurements |
 | U8 | eUSB2→USB 2.0 repeater (TI **TUSB2E11**-class) | RT700 eUSB2 ↔ USB-C connector |
-| U9 | TMUX136-class analog mux | USDHC1 sharing: card 2 ↔ radio SDIO |
+| U11 | Serial NAND, 1–8 Gbit (part **TBD**, R14) | Internal storage on xSPI1: library DB, art cache, built-in partition |
 | U7 | 3.3 V buck for radio module (**TBD**) | MAYA-W260 supply (switchable; DNP with module) |
 | U10 | u-blox **MAYA-W260-00B** | On-board tri-radio module, IW611 (DNP = radio-less SKU) |
 | ANT1, ANT2 | 2.4/5 GHz antennas, U.FL (u-blox approved list, **TBD**) | Wi-Fi + BT antennas |
 | U5 | Low-noise LDO (TPS7A20-class) | CS43131 clean 1.8 V |
 | J1 | USB-C receptacle | Charge + USB 2.0 HS |
-| J3, J4 | microSD sockets ×2 | SDIO0/SDIO1, 4-bit |
+| J3 | microSD socket | USDHC0, 4-bit |
 | J5 | Daughterboard interconnect (FPC/mezzanine **TBD**) | Audio I/O per parent F12 |
 | J6 | JST-PH battery + 10 kΩ NTC | Li-Po cell |
 | DS1 | 3/4-color e-ink panel (**TBD** per parent §4.6) | Display |
