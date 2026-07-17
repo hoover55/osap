@@ -56,20 +56,23 @@
 
 ## 3. System Architecture
 
-Two-chip design (adopted 2026-07-17): an **NXP i.MX RT685** audio-crossover MCU
-(Cortex-M33 + HiFi4 DSP, two native SD host controllers, USB 2.0 high-speed with
-on-chip PHY) paired with a socketed **NXP IW6xx tri-radio module** (Wi-Fi 6 +
+Two-chip design: an **NXP i.MX RT700** ultra-low-power crossover MCU (dual
+Cortex-M33 + HiFi4 and HiFi1 DSPs, 7.5 MB SRAM, native SD hosts, USB 2.0 high-speed
+over **eUSB2**) paired with a socketed **NXP IW6xx tri-radio module** (Wi-Fi 6 +
 dual-mode Bluetooth 5.4 + 802.15.4) for wireless audio — Bluetooth **Classic A2DP**
-works with virtually every BT headphone. Firmware runs on upstream **Zephyr RTOS**
-(Embassy/Rust was considered early and dropped). The device is fully functional with
-the radio module unfitted. First hardware: **[EVT1.md](EVT1.md)**.
+works with virtually every BT headphone. RT700 chosen over the RT600 (2026-07-17)
+for **longevity and lower power**; its eUSB2 port reaches the USB-C connector
+through a small eUSB2→USB 2.0 repeater (§4.5). Firmware runs on upstream **Zephyr
+RTOS** (Embassy/Rust was considered early and dropped). The device is fully
+functional with the radio module unfitted. First hardware: **[EVT1.md](EVT1.md)**.
 
 ```mermaid
 flowchart LR
     USBC["USB-C"]
-    PMIC["PCA9420 PMIC<br/>charger + bucks + LDOs"]
+    PMIC["PCA9422 PMIC<br/>640 mA charger + 3 bucks<br/>+ buck-boost + 4 LDOs"]
     BATT["Li-Po pouch cell<br/>(TBD)"]
-    MCU["i.MX RT685<br/>M33 300 MHz + HiFi4 600 MHz"]
+    RPT["eUSB2 repeater<br/>(TUSB2E11-class)"]
+    MCU["i.MX RT700<br/>2× M33 + HiFi4 + HiFi1"]
     FLASH["Octal-SPI NOR<br/>boot flash"]
     RADIO["IW6xx tri-radio module<br/>(socketed, M.2 Key E)"]
     DAC["CS43131<br/>DAC + headphone amp"]
@@ -78,14 +81,15 @@ flowchart LR
         JACK["Headphone jack<br/>3.5 mm / 6.35 mm"]
         AUX["Aux line-in<br/>3.5 mm"]
     end
-    SD1["microSD 1 (SDIO0)"]
-    SD2["microSD 2 (SDIO1)"]
+    SD1["microSD 1 (USDHC0)"]
+    SD2["microSD 2 (USDHC1,<br/>muxed w/ radio SDIO)"]
     EINK["3/4-color e-ink"]
     BTNS["Buttons"]
 
     USBC -- "VBUS" --> PMIC --> BATT
     PMIC -- "rails (mode-switched)" --> MCU
-    USBC <-- "USB 2.0 HS" --> MCU
+    USBC <-- "USB 2.0 HS (3.3 V)" --> RPT
+    RPT <-- "eUSB2 (1.2 V)" --> MCU
     MCU <--> FLASH
     MCU -- "I2S + MCLK + I2C" --> DAC --> JACK
     AUX -. "pass-through switch (option)" .-> JACK
@@ -101,23 +105,32 @@ flowchart LR
 
 | Core | Planned role |
 |---|---|
-| Cortex-M33 @ 300 MHz | Zephyr: UI, filesystem, USB, BT host (A2DP), playback engine; audio decode baseline |
-| HiFi4 DSP @ 600 MHz | **Optional** offload: decode/SRC/EQ — proprietary Xtensa toolchain, optional build only (§7, R12) |
+| Main Cortex-M33 @ 325 MHz | Zephyr: UI, filesystem, USB, BT host (A2DP), playback engine; audio decode baseline |
+| HiFi4 DSP | **Optional** offload: decode/SRC/EQ — proprietary Xtensa toolchain, optional build only (§7, R12) |
+| Sense subsystem (M33 @ 250 MHz + HiFi1) | Candidate: always-on button scan, battery monitoring, wake logic at µW levels — [ ] evaluate at M1 (also Xtensa-toolchain-free? verify) |
+| eIQ Neutron NPU / 2.5D GPU | NPU unused; GPU's JPEG/PNG decoder is a candidate for album-art rendering — strictly optional |
 | IW6xx module CPUs | Wi-Fi / BT / 802.15.4 protocol processing on-module (NXP firmware) |
 
 ## 4. Hardware Design
 
-### 4.1 SoC — NXP i.MX RT685 (MIMXRT685S)
+### 4.1 SoC — NXP i.MX RT700 (MIMXRT798S lead candidate; RT758/RT735 siblings)
 
-- Cortex-M33 @ 300 MHz + HiFi4 DSP @ 600 MHz; **4.5 MB shared SRAM**; no internal
-  flash — external octal-SPI NOR, XIP
-- **2× SD/eMMC/SDIO host controllers** — one per microSD slot, native 4-bit
-- USB 2.0 **high-speed** device/host with on-chip PHY
-- Audio PLL with MCLK output pin — [ ] verify exact 22.5792/24.576 MHz attainability
-  and jitter vs the CS43131 direct-MCLK mask (fallback: CS43131 PLL-reference mode, R7)
-- [ ] VDDIO domain map (SD/e-ink expected native 3.3 V), power-mode map, errata (R6)
-- [ ] Package selection; evaluate **i.MX RT700** successor before schematic freeze (R11)
-- Mature part: in-tree Zephyr support (`mimxrt685_evk`), MCUXpresso SDK (BSD-3-Clause)
+- Dual Cortex-M33 (325 MHz main + 250 MHz sense) + HiFi4 + HiFi1 DSPs + eIQ Neutron
+  NPU + 2.5D GPU w/ JPEG decode; **7.5 MB SRAM**; no internal flash — 3× xSPI for
+  external NOR (up to 16-bit DDR @ 250 MHz), XIP
+- **Chosen over RT600 for longevity + lower power** (2026-07-17); trade-off: younger
+  silicon and Zephyr support (R11)
+- **uSDHC SD/eMMC/SDIO hosts** — [ ] **confirm instance count in the RM** (expected 2:
+  USDHC0 + USDHC1); supports eMMC 5.0 HS400. Allocation: card 1 → USDHC0; card 2 →
+  USDHC1 **muxed with the radio socket's SDIO** (analog mux, per NXP's own RT700-EVK
+  which shares USDHC1 between SD socket and M.2 via TMUX136) — see R14
+- USB 2.0 HS via **eUSB2** (1.2 V signaling, same 480 Mbps protocol) — requires an
+  **eUSB2→USB 2.0 repeater** at the connector (§4.5)
+- Audio: [ ] **verify SAI/I2S MCLK output pin and audio-PLL exact rates** vs the
+  CS43131 direct-MCLK mask (fallback: CS43131 PLL-reference mode, R7)
+- [ ] VDDIO domain map, power-mode map, package/pitch survey, errata (R6)
+- In-tree Zephyr support (`mimxrt700_evk`) + MCUXpresso SDK (BSD-3-Clause) — younger
+  than the RT600's (R11)
 
 ### 4.2 Audio subsystem
 
@@ -143,36 +156,45 @@ flowchart LR
   - [ ] Record/digitize mode: **discrete line-in ADC** (the CS43131 has none) —
         enables recording to SD and BT re-streaming
   - [ ] Or both — TBD (R10)
-- **Clocking:** RT685 audio PLL → **MCLK output** for both 44.1/48 kHz families
-  (verify §4.1); CS43131 PLL-reference mode as fallback.
+- **Clocking:** RT700 audio PLL → **MCLK output** for both 44.1/48 kHz families
+  (verify §4.1, R7); CS43131 PLL-reference mode as fallback.
 - **Analog power:** dedicated low-noise LDO rails, ground/layout strategy, pop/click
   muting circuit. TBD.
 
 ### 4.3 Power
 
 - Single-cell Li-Po pouch (thin form factor drives selection) — capacity **TBD** mAh
-- PMIC — **NXP PCA9420 (decided 2026-07-17):** RT600-native pairing — in-tree Zephyr
-  regulator driver, hardware **mode-select pins** switch rail groups with MCU sleep
-  states; linear charger up to **315 mA** (R5), ship mode, ON-pin power button.
+- PMIC — **NXP PCA9422 (selected 2026-07-17 with the RT700 move):** NXP's designated
+  charger+gauge PMIC for RT500/600/**700**. JEITA linear charger up to **640 mA**
+  (resolves the old 315 mA charge-time concern), 3 bucks (SW1/SW3 core 300 mA,
+  SW2 system 500 mA) + **buck-boost** + 4 LDOs, ship mode. The buck-boost is the
+  natural **CS43131 VP rail** — holds > 3.3 V across the full battery discharge.
   Details: [EVT1.md §5.4](EVT1.md)
-- USB-C power: 5 V; **discrete 5.1 kΩ CC pull-downs** (PCA9420 has no CC PHY), input
-  current limit via I2C; USB-PD not planned
-- Fuel gauging: battery-voltage divider → RT685 ADC + small **open-source** SoC
-  estimator (no vendor binary anywhere in the image)
+- USB-C power: 5 V; **discrete 5.1 kΩ CC pull-downs**, input current limit via I2C;
+  USB-PD not planned
+- Fuel gauging: PCA9422 measurement + NXP **FlexGauge** host-software algorithm —
+  [ ] **license review** (must be GPL-compatible or we fall back to our own
+  open ADC-based estimator)
 - [ ] Power budget table: decode+playback, BT streaming, e-ink refresh, sleep, off
 - E-ink draws zero power when static — key enabler for the battery-life target
 
 ### 4.4 Storage — 2× microSD
 
-- **Native 4-bit SD** on SDIO0/SDIO1 — one host controller per slot, 3.3 V signaling,
-  no level shifters; ~10+ MB/s-class per slot expected (USB transfers become
-  card-bound, not interface-bound) — benchmark at EVT-1 (E2/E3)
+- **Native 4-bit SD** on the RT700's uSDHC hosts — card 1 on USDHC0; card 2 on
+  USDHC1 **shared with the radio socket's SDIO via analog mux** (R14; RT700-EVK
+  precedent). 3.3 V signaling, no level shifters; ~10+ MB/s-class per slot expected
+  (USB transfers become card-bound, not interface-bound) — benchmark at EVT-1 (E2/E3)
 - [ ] UHS-I 1.8 V switching: evaluate (power/perf trade)
 - [ ] Push-push vs hinged sockets; card detect; per-slot power switches (hot-swap + sleep)
 
 ### 4.5 USB-C
 
 - Roles: charging sink + USB 2.0 HS device (no DRP/host planned — confirm)
+- **eUSB2 interface chain:** RT700 eUSB2 pins (1.2 V) → **eUSB2→USB 2.0 repeater**
+  (TI **TUSB2E11**-class: LS/FS/HS 480 Mbps, host/device DRD, strap or I2C config)
+  → standard 3.3 V D+/D− → connector. Place the repeater near the connector;
+  [ ] repeater supply rails + eUSB vs USB-side termination per datasheet;
+  [ ] check what NXP's RT700-EVK uses and copy that reference design
 - Device classes: MSC (expose cards directly) vs MTP (database-friendly) — TBD, see §5.9
 - ESD/CC protection, connector mid-mount for thinness — TBD
 
@@ -208,7 +230,7 @@ flowchart LR
   build (§5.2)
 - **Configuration:** custom Zephyr **board definition** `osap_v1` (devicetree +
   Kconfig) — DAC on I2S + I2C, e-ink on SPI, `gpio-keys`, SDHC nodes per slot,
-  PCA9420 regulators, IW6xx on SDIO + UART
+  PCA9422 regulators, IW6xx on SDIO + UART
 - **Toolchain/CI:** Zephyr SDK container; GitHub Actions build + Twister on every PR
 
 ### 5.2 Runtime architecture — images & processors
@@ -219,8 +241,9 @@ flowchart LR
 | `dsp` (optional) | HiFi4 | Decode/SRC/EQ offload — optional build, proprietary Xtensa toolchain (§7, R12) |
 | radio firmware | IW6xx module | NXP-provided binary, loaded at runtime over SDIO/UART — runs on separate hardware |
 
-- **M33 ↔ DSP:** shared-SRAM mailbox/IPM ([ ] verify Zephyr RT600 DSP support and
-  openamp/ipm story at M1 — only relevant if DSP build is used)
+- **M33 ↔ DSP / sense subsystem:** shared-SRAM mailbox/IPM ([ ] verify Zephyr RT700
+  multi-core support and openamp/ipm story at M1 — relevant if the DSP or sense-core
+  builds are used)
 - **BT HCI:** Zephyr host on the M33 ↔ module controller over flow-controlled UART
 
 ### 5.3 Layered stack
@@ -230,7 +253,7 @@ flowchart LR
 | Application | playback engine (SMF state machine), library manager, UI screens, settings/EQ |
 | Middleware | LVGL (UI), FatFs, SBC codec, audio decoders (§5.5), music index |
 | Zephyr subsystems | BT host incl. **Classic (A2DP/AVRCP — experimental)**, USB device (usbd), FS/disk, input, settings, PM, logging, shell |
-| Vendor/HAL | MCUXpresso HAL (`hal_nxp`), PCA9420 regulator driver, IW6xx radio-firmware loader |
+| Vendor/HAL | MCUXpresso HAL (`hal_nxp`), PCA9422 PMIC driver ([ ] verify Zephyr driver status — `nxp,pca9420` driver as reference if absent), IW6xx radio-firmware loader |
 | Out-of-tree drivers | Cirrus DAC codec driver (Zephyr `audio_codec` API) — **to be written**, e-ink panel driver if not in tree (ssd16xx/uc81xx families are) |
 
 ### 5.4 Thread / task model (initial sketch — priorities TBD via profiling)
@@ -284,7 +307,8 @@ flowchart LR
 
 ### 5.9 USB (device)
 
-- Zephyr **usbd** (next-gen) stack over the RT685's high-speed UDC (on-chip PHY)
+- Zephyr **usbd** (next-gen) stack over the RT700's high-speed UDC (eUSB2 PHY; the
+  external repeater is transparent to software)
 - **MSC vs MTP trade study:** MSC is in-tree and simple but requires unmounting the local
   FS while the host owns the cards; **MTP is not upstream** — custom class work if chosen
 - Charge-only vs data enumeration behavior; USB audio (UAC2 "USB DAC" mode) as stretch — TBD
@@ -300,22 +324,23 @@ flowchart LR
 
 ### 5.11 Settings & persistence
 
-- Zephyr **settings** subsystem on **NVS**, in a partition of the octal-SPI NOR:
+- Zephyr **settings** subsystem on **NVS**, in a partition of the external xSPI NOR:
   BT bonds, EQ presets, last-played position, UI preferences
 
 ### 5.12 Power management
 
 - Zephyr PM: device runtime PM on all peripherals; CPU idle between buffer fills;
-  radio module powered down when wireless unused; PCA9420 **mode-select rails**
-  track RT600 sleep states
-- Deep sleep with e-ink image retained (zero display draw); PCA9420 **ship mode**
-  for power-off; wake on power button (ON pin) and VBUS
+  radio module powered down when wireless unused; PCA9422 rails track RT700 sleep
+  states; [ ] evaluate the **sense subsystem** (M33 + HiFi1) for always-on button
+  scan/battery watch with the main domain off
+- Deep sleep with e-ink image retained (zero display draw); PCA9422 **ship mode**
+  for power-off; wake on power button and VBUS
 - [ ] Per-state current targets feed the §4.3 power budget table
 
 ### 5.13 DFU & updates
 
-- **MCUboot** on the octal-SPI NOR (XIP + update slots) — the standard, boring RT600
-  path
+- **MCUboot** on the external xSPI NOR (XIP + update slots) — the standard, boring
+  i.MX RT path
 - Transport: **SMP over USB**; fallback: firmware file dropped on an SD card, applied
   at boot
 - Recovery path and anti-rollback policy — TBD; radio-module firmware updates ride
@@ -325,7 +350,7 @@ flowchart LR
 
 - Logging via Zephyr `log` → RTT; `shell` enabled in dev builds only
 - Unit tests: `ztest` + **Twister**; library/UI logic additionally run on `native_sim`
-- HIL bench at M1+: MIMXRT685-EVK + IW612 module DVK + CS43131 eval; audio analyzer
+- HIL bench at M1+: MIMXRT700-EVK + IW612 module DVK + CS43131 eval; audio analyzer
   measurements at M4 (§10)
 
 ### 5.15 Firmware repository layout (planned)
@@ -377,31 +402,33 @@ firmware/
 - `osap_v1/` — this document, firmware (planned), hardware (planned)
 - `../osaplib/osapv1lib.kicad_sym` — shared KiCad symbol library
   - Note: contains STM32 symbols from an early architecture study (unused);
-    **RT685, PCA9420, CS43131, and M.2 socket symbols need to be drawn**
+    **RT700, PCA9422, CS43131, eUSB2 repeater, and M.2 socket symbols need to be drawn**
 
 ## 9. Risks & Open Questions
 
 | # | Risk / question | Impact | Next step |
 |---|---|---|---|
-| R1 | Zephyr Bluetooth **Classic host / A2DP source is experimental** — qualification depth unknown | v1 wireless feature | Prototype on RT685-EVK + IW612 DVK **before** EVT-1 layout; fallback: NXP EtherMind stack (license review) |
+| R1 | Zephyr Bluetooth **Classic host / A2DP source is experimental** — qualification depth unknown | v1 wireless feature | Prototype on RT700-EVK + IW612 DVK **before** EVT-1 layout; fallback: NXP EtherMind stack (license review) |
 | R2 | Color e-ink refresh latency hurts browsing UX | Usability | Panel eval; grayscale partial refresh |
 | R3 | Thin pouch cell sourcing at needed capacity | Battery life vs thickness | Cell vendor survey |
 | R4 | CS43131 integrated amp drive into high-impedance 1/4" cans | Audio target | Measure at EVT-1 (E8); fallback CS43198 + discrete amp |
-| R5 | PCA9420 charger caps at **315 mA** (~6–8 h for 1500–2000 mAh) | Charge UX | Accept, or evaluate PCA9421 / parallel charge path |
-| R6 | RT685 VDDIO domains / power-mode map unverified vs rail plan | Schematic rework | RM review before capture (EVT1 V2) |
-| R7 | Audio-PLL exact-rate/jitter for CS43131 direct MCLK unverified | Clocking | Verify RM; CS43131 PLL-ref fallback (EVT1 V4) |
+| R5 | FlexGauge (PCA9422 gauging software) license may be GPL-incompatible | Licensing | Review license; fallback: own open ADC/coulomb estimator on PCA9422 measurements |
+| R6 | RT700 VDDIO domains / power-mode map unverified vs rail plan | Schematic rework | RM review before capture (EVT1 V2) |
+| R7 | RT700 audio MCLK output pin + PLL exact-rate/jitter for CS43131 direct MCLK **unverified** | Clocking | Verify RM at M1; CS43131 PLL-ref fallback (EVT1 V4) |
 | R8 | USB MTP class not upstream in Zephyr — custom work if chosen over MSC | FW effort | §5.9 trade study at M1 |
 | R9 | M.2 Key E pinout vs specific module straps may diverge | Radio socket | Pin against a specific Murata p/n early (EVT1 V6) |
 | R10 | Aux-input function undefined (pass-through vs record) — record needs a discrete ADC | Architecture | Decide at M0 (§4.2) |
-| R11 | i.MX RT700 supersedes RT600 mid-project | Longevity | Availability/longevity check on both before schematic freeze |
-| R12 | HiFi4 Xtensa toolchain is proprietary | Open-source ethos | DSP strictly optional; M33 baseline full-featured (§7) |
+| R11 | RT700 is young: thin errata history, newer Zephyr port, uSDHC instance count and packages unverified | Schedule/rework | RM + datasheet review at M1; RT700-EVK bring-up early |
+| R12 | HiFi4 Xtensa toolchain is proprietary (sense-subsystem HiFi1 likewise) | Open-source ethos | DSP strictly optional; M33 baseline full-featured (§7) |
 | R13 | Wi-Fi capability invites scope creep (streaming, sync) | Focus | Deferred past v1; revisit at DVT with product hat on |
+| R14 | Card 2 shares a uSDHC with the radio SDIO via analog mux — Wi-Fi and card 2 can't run concurrently | Future Wi-Fi UX | Follow the RT700-EVK TMUX136 precedent; acceptable for v1 (Wi-Fi deferred, BT uses UART) |
 
 ## 10. Roadmap (draft)
 
 - **M0** — Requirements finalized (fill every TBD in §2.2; aux decision R10)
-- **M1** — Dev-kit prototyping: MIMXRT685-EVK + IW612 module DVK + CS43131 eval
-  board; local playback + **A2DP source proof** (retires R1)
+- **M1** — Dev-kit prototyping: MIMXRT700-EVK + IW612 module DVK + CS43131 eval
+  board; local playback + **A2DP source proof** (retires R1); RM verifications
+  (R6/R7/R11)
 - **M2** — E-ink UI, dual-SD, and USB MSC/MTP working on the EVK bench
 - **M3** — **EVT-1**: first custom PCB, full feature set — see **[EVT1.md](EVT1.md)**
   (schematic in KiCad, `osaplib` symbols)
@@ -410,11 +437,13 @@ firmware/
 
 ## 11. References
 
-- NXP i.MX RT600 / MIMXRT685-EVK: <https://www.nxp.com/design/design-center/development-boards-and-designs/i-mx-evaluation-and-development-boards/i-mx-rt600-evaluation-kit:MIMXRT685-EVK>
+- NXP i.MX RT700: <https://www.nxp.com/products/i.MX-RT700> (EVK: MIMXRT700-EVK;
+  Zephyr board docs: <https://docs.zephyrproject.org/latest/boards/nxp/mimxrt700_evk/doc/index.html>)
 - NXP IW612 tri-radio: <https://www.nxp.com/products/IW612> (datasheet: <https://www.nxp.com/docs/en/data-sheet/IW612.pdf>)
-- NXP PCA9420 PMIC: <https://www.nxp.com/products/PCA9420-PCA9421>
+- NXP PCA9422 PMIC (charger + gauge, RT700 companion): <https://www.nxp.com/products/PCA9422>
+- TI TUSB2E11 eUSB2→USB 2.0 repeater: <https://www.ti.com/product/TUSB2E11>
 - Cirrus Logic CS43131 datasheet (DS1155F2): <https://statics.cirrus.com/pubs/proDatasheet/CS43131_DS1155F2.pdf>
-- Zephyr RTOS: <https://zephyrproject.org> — `mimxrt685_evk` board docs; Classic A2DP
+- Zephyr RTOS: <https://zephyrproject.org> — Classic A2DP
   source sample: <https://docs.zephyrproject.org/latest/samples/bluetooth/classic/a2dp_source/README.html>
 - LVGL: <https://lvgl.io>
 - E-ink panel datasheets — TBD
@@ -444,7 +473,7 @@ firmware/
 | SBC | Subband Codec — A2DP's mandatory codec; encoded in firmware before streaming |
 | BR/EDR | Basic Rate / Enhanced Data Rate — "Bluetooth Classic", the mode A2DP runs on (vs LE) |
 | LE Audio / LC3 | The modern BLE-based audio system and its codec — a future addition once IW6xx support matures (§5.8) |
-| HCI | Host Controller Interface — the standard protocol between the Zephyr BT host (RT685) and the controller (IW6xx module, over UART) |
+| HCI | Host Controller Interface — the standard protocol between the Zephyr BT host (RT700) and the controller (IW6xx module, over UART) |
 | SIG | (Bluetooth) Special Interest Group — the standards body; products must be qualified with it |
 | QDID | Qualified Design ID — the Bluetooth SIG listing number a qualified product receives |
 
@@ -461,7 +490,8 @@ firmware/
 | BC1.2 | USB Battery Charging 1.2 — legacy spec for detecting charger current capability |
 | PD | (USB) Power Delivery — higher-power USB-C negotiation; likely unnecessary here |
 | DRP | Dual-Role Port — USB-C port that can be host or device; not planned |
-| PMIC | Power Management IC — combined charger/regulator chip (PCA9420) |
+| PMIC | Power Management IC — combined charger/regulator chip (PCA9422) |
+| eUSB2 | Embedded USB 2 — USB 2.0 protocol at 1.0/1.2 V signaling for advanced-node SoCs; a repeater converts to standard 3.3 V USB at the connector |
 | LDO | Low-DropOut regulator — linear regulator; used for quiet analog supply rails |
 | ESD | ElectroStatic Discharge — protection required on user-touchable connectors |
 
@@ -469,9 +499,9 @@ firmware/
 
 | Term | Meaning |
 |---|---|
-| HiFi4 | Cadence Tensilica audio DSP core inside the RT685 — optional decode/EQ offload |
-| XIP | eXecute In Place — running code directly from the octal-SPI NOR boot flash |
-| SDIO / SDMMC | Native 4-bit SD card bus interfaces — the RT685 has two host controllers, one per card slot |
+| HiFi4 / HiFi1 | Cadence Tensilica audio DSP cores in the RT700 (main + low-power sense subsystem) — optional offload only |
+| XIP | eXecute In Place — running code directly from the external xSPI NOR boot flash |
+| SDIO / SDMMC | Native 4-bit SD card bus interfaces — RT700 uSDHC hosts; card 2 shares one with the radio socket via mux (R14) |
 | NVS | Non-Volatile Storage — Zephyr settings backend on a NOR-flash partition |
 | NVM | Non-Volatile Memory — generic term for persistent storage |
 | IPC | Inter-Processor Communication — M33 ↔ HiFi4 mailbox/shared-SRAM messaging (DSP build only) |
@@ -480,7 +510,7 @@ firmware/
 | DFU | Device Firmware Update — MCUboot + SMP-over-USB here |
 | DMA | Direct Memory Access — peripheral data transfer without CPU involvement; keeps the audio path low-power |
 | RTT | Real-Time Transfer — SEGGER debug-probe channel used for log output |
-| DK / EVK | Development / Evaluation Kit (e.g., MIMXRT685-EVK) |
+| DK / EVK | Development / Evaluation Kit (e.g., MIMXRT700-EVK) |
 | HIL | Hardware-In-the-Loop — automated tests run against real hardware |
 | M.2 Key E | Socket/card standard used by Wi-Fi/BT modules — the IW6xx radio socket format |
 
