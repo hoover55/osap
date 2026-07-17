@@ -7,16 +7,16 @@ firmware are fully open source.
   native SD hosts, USB 2.0 high-speed via eUSB2)
 - **Audio:** Cirrus Logic CS43131 DAC with built-in headphone amplifier; modular
   3.5 mm / 6.35 mm jack + aux line-in on a daughterboard
-- **Wireless:** socketed NXP IW6xx tri-radio module — Bluetooth Classic A2DP to any
-  BT headphone (Wi-Fi 6 capable, deferred)
+- **Wireless:** on-board u-blox MAYA-W260 module (NXP IW611) — Bluetooth Classic
+  A2DP to any BT headphone (Wi-Fi 6 capable, deferred)
 - **Firmware:** Zephyr RTOS
 - **Form factor:** ~cassette-tape footprint, 10–20 mm thick, 3/4-color e-ink display
 
 📄 **Start here: [DESIGN.md](DESIGN.md)** — the v1 design document (open questions
 tracked in its §9).
 
-🧪 **[EVT1.md](EVT1.md)** — the first custom board: RT700 + CS43131 + PCA9422, with
-an M.2 Key E socket for the IW6xx wireless module.
+🧪 **[EVT1.md](EVT1.md)** — the first custom board: RT700 + CS43131 + PCA9422 +
+u-blox MAYA-W260 wireless module.
 
 ## Status
 

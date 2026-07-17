@@ -34,7 +34,7 @@
 | F2 | High-end Cirrus Logic DAC in the analog signal path |
 | F3 | Built-in headphone amplifier |
 | F4 | Modular headphone jack accommodating 1/8" (3.5 mm) and 1/4" (6.35 mm) connectors |
-| F5 | Wireless audio output to Bluetooth headphones/speakers — Classic A2DP via socketed wireless module (LE Audio as a future addition) |
+| F5 | Wireless audio output to Bluetooth headphones/speakers — Classic A2DP via on-board wireless module (DNP variant = radio-less build; LE Audio as a future addition) |
 | F6 | 2× microSD card slots |
 | F7 | USB-C: battery charging + USB 2.0 high-speed (480 Mbps) data for file transfer |
 | F8 | 3- or 4-color e-ink display |
@@ -58,8 +58,8 @@
 
 Two-chip design: an **NXP i.MX RT700** ultra-low-power crossover MCU (dual
 Cortex-M33 + HiFi4 and HiFi1 DSPs, 7.5 MB SRAM, native SD hosts, USB 2.0 high-speed
-over **eUSB2**) paired with a socketed **NXP IW6xx tri-radio module** (Wi-Fi 6 +
-dual-mode Bluetooth 5.4 + 802.15.4) for wireless audio — Bluetooth **Classic A2DP**
+over **eUSB2**) paired with an on-board **u-blox MAYA-W260-00B module** (NXP IW611:
+Wi-Fi 6 + dual-mode Bluetooth 5.4) for wireless audio — Bluetooth **Classic A2DP**
 works with virtually every BT headphone. RT700 chosen over the RT600 (2026-07-17)
 for **longevity and lower power**; its eUSB2 port reaches the USB-C connector
 through a small eUSB2→USB 2.0 repeater (§4.5). Firmware runs on upstream **Zephyr
@@ -74,7 +74,7 @@ flowchart LR
     RPT["eUSB2 repeater<br/>(TUSB2E11-class)"]
     MCU["i.MX RT700<br/>2× M33 + HiFi4 + HiFi1"]
     FLASH["Octal-SPI NOR<br/>boot flash"]
-    RADIO["IW6xx tri-radio module<br/>(socketed, M.2 Key E)"]
+    RADIO["u-blox MAYA-W260-00B<br/>(IW611: Wi-Fi 6 + BT 5.4)<br/>2× U.FL antennas"]
     DAC["CS43131<br/>DAC + headphone amp"]
 
     subgraph DB["Audio I/O daughterboard"]
@@ -109,7 +109,7 @@ flowchart LR
 | HiFi4 DSP | **Optional** offload: decode/SRC/EQ — proprietary Xtensa toolchain, optional build only (§7, R12) |
 | Sense subsystem (M33 @ 250 MHz + HiFi1) | Candidate: always-on button scan, battery monitoring, wake logic at µW levels — [ ] evaluate at M1 (also Xtensa-toolchain-free? verify) |
 | eIQ Neutron NPU / 2.5D GPU | NPU unused; GPU's JPEG/PNG decoder is a candidate for album-art rendering — strictly optional |
-| IW6xx module CPUs | Wi-Fi / BT / 802.15.4 protocol processing on-module (NXP firmware) |
+| MAYA-W260 module CPUs (IW611) | Wi-Fi / BT protocol processing on-module (NXP firmware) |
 
 ## 4. Hardware Design
 
@@ -122,8 +122,8 @@ flowchart LR
   silicon and Zephyr support (R11)
 - **uSDHC SD/eMMC/SDIO hosts** — [ ] **confirm instance count in the RM** (expected 2:
   USDHC0 + USDHC1); supports eMMC 5.0 HS400. Allocation: card 1 → USDHC0; card 2 →
-  USDHC1 **muxed with the radio socket's SDIO** (analog mux, per NXP's own RT700-EVK
-  which shares USDHC1 between SD socket and M.2 via TMUX136) — see R14
+  USDHC1 **muxed with the radio module's SDIO** (analog mux, per NXP's own RT700-EVK
+  which shares USDHC1 the same way via TMUX136) — see R14
 - USB 2.0 HS via **eUSB2** (1.2 V signaling, same 480 Mbps protocol) — requires an
   **eUSB2→USB 2.0 repeater** at the connector (§4.5)
 - Audio: [ ] **verify SAI/I2S MCLK output pin and audio-PLL exact rates** vs the
@@ -181,7 +181,7 @@ flowchart LR
 ### 4.4 Storage — 2× microSD
 
 - **Native 4-bit SD** on the RT700's uSDHC hosts — card 1 on USDHC0; card 2 on
-  USDHC1 **shared with the radio socket's SDIO via analog mux** (R14; RT700-EVK
+  USDHC1 **shared with the radio module's SDIO via analog mux** (R14; RT700-EVK
   precedent). 3.3 V signaling, no level shifters; ~10+ MB/s-class per slot expected
   (USB transfers become card-bound, not interface-bound) — benchmark at EVT-1 (E2/E3)
 - [ ] UHS-I 1.8 V switching: evaluate (power/perf trade)
@@ -211,14 +211,16 @@ flowchart LR
 - [ ] GPIO matrix vs direct; wake-from-off wiring via PMIC ON pin; software debounce
 - [ ] Hold/lock switch? TBD
 
-### 4.8 Wireless — socketed IW6xx module
+### 4.8 Wireless — u-blox MAYA-W260-00B (on-board, decided 2026-07-17)
 
-- NXP **IW612-class** tri-radio module (Wi-Fi 6 + **dual-mode BT 5.4** + 802.15.4) on
-  an **M.2 Key E** socket; host interfaces: SDIO 3.0 (Wi-Fi) + flow-controlled UART
-  (BT HCI)
-- Pre-certified module preserves modular RF certification; device works radio-less
-- [ ] Module p/n selection (Murata/AzureWave IW61x) — pins the socket layout (R9)
-- [ ] Antenna keep-out per module vendor; placement vs. enclosure material
+- **u-blox MAYA-W260-00B**: NXP **IW611** (2.4/5 GHz 1×1 Wi-Fi 6 + **dual-mode
+  BT 5.4**), 86-pin BFLGA 10.4 × 14.3 mm, **2× U.FL antenna connectors** (Wi-Fi + BT);
+  host interfaces: SDIO 3.0 (Wi-Fi, muxed — R14) + flow-controlled UART (BT HCI)
+- Pre-certified module preserves modular RF certification — [ ] antennas from
+  u-blox's approved list; keep-out and coax routing per integration manual
+- **DNP build variant** = radio-less SKU (unintentional-radiator cert only)
+- [ ] Lifecycle/availability confirmation with u-blox (R9); [ ] confirm IW611 vs
+  IW612 variant (802.15.4 not needed)
 - Wi-Fi *features* deferred past v1 (R13) — BT Classic A2DP is the v1 wireless feature
 
 ## 5. Firmware & Software Stack (Zephyr)
@@ -230,7 +232,7 @@ flowchart LR
   build (§5.2)
 - **Configuration:** custom Zephyr **board definition** `osap_v1` (devicetree +
   Kconfig) — DAC on I2S + I2C, e-ink on SPI, `gpio-keys`, SDHC nodes per slot,
-  PCA9422 regulators, IW6xx on SDIO + UART
+  PCA9422 regulators, MAYA-W260 on SDIO + UART
 - **Toolchain/CI:** Zephyr SDK container; GitHub Actions build + Twister on every PR
 
 ### 5.2 Runtime architecture — images & processors
@@ -239,7 +241,7 @@ flowchart LR
 |---|---|---|
 | `app` | Cortex-M33 | Zephyr app: UI, playback engine, decoders, SBC encode, BT host, USB, FS |
 | `dsp` (optional) | HiFi4 | Decode/SRC/EQ offload — optional build, proprietary Xtensa toolchain (§7, R12) |
-| radio firmware | IW6xx module | NXP-provided binary, loaded at runtime over SDIO/UART — runs on separate hardware |
+| radio firmware | MAYA-W260 module (IW611) | NXP-provided binary, loaded at runtime over SDIO/UART — runs on separate hardware |
 
 - **M33 ↔ DSP / sense subsystem:** shared-SRAM mailbox/IPM ([ ] verify Zephyr RT700
   multi-core support and openamp/ipm story at M1 — relevant if the DSP or sense-core
@@ -253,7 +255,7 @@ flowchart LR
 | Application | playback engine (SMF state machine), library manager, UI screens, settings/EQ |
 | Middleware | LVGL (UI), FatFs, SBC codec, audio decoders (§5.5), music index |
 | Zephyr subsystems | BT host incl. **Classic (A2DP/AVRCP — experimental)**, USB device (usbd), FS/disk, input, settings, PM, logging, shell |
-| Vendor/HAL | MCUXpresso HAL (`hal_nxp`), PCA9422 PMIC driver ([ ] verify Zephyr driver status — `nxp,pca9420` driver as reference if absent), IW6xx radio-firmware loader |
+| Vendor/HAL | MCUXpresso HAL (`hal_nxp`), PCA9422 PMIC driver ([ ] verify Zephyr driver status — `nxp,pca9420` driver as reference if absent), IW611 radio-firmware loader |
 | Out-of-tree drivers | Cirrus DAC codec driver (Zephyr `audio_codec` API) — **to be written**, e-ink panel driver if not in tree (ssd16xx/uc81xx families are) |
 
 ### 5.4 Thread / task model (initial sketch — priorities TBD via profiling)
@@ -293,7 +295,7 @@ flowchart LR
 - Format: custom compact binary index vs embedded DB — **TBD** (SQLite likely too heavy;
   benchmark at M1)
 
-### 5.8 Bluetooth — Classic A2DP (via IW6xx module)
+### 5.8 Bluetooth — Classic A2DP (via MAYA-W260 module)
 
 - **Zephyr Classic host (experimental, NXP-driven)** over UART HCI: **A2DP source**
   role streaming to ordinary BT headphones — in-tree `a2dp_source` sample as the
@@ -301,7 +303,7 @@ flowchart LR
 - **Codec:** SBC (A2DP mandatory); [ ] optional codecs (AAC/aptX) later — licensing review
 - **Remote control:** AVRCP target — headphone buttons drive the playback engine
 - **Volume:** AVRCP absolute volume — [ ] verify Zephyr support depth
-- **LE Audio:** future addition once IW6xx LE Audio support matures — track, don't block v1
+- **LE Audio:** future addition once IW61x LE Audio support matures — track, don't block v1
 - Pairing/bonding UX on e-ink + buttons; bond storage via settings (§5.11); multi-device TBD
 - [ ] BT/Wi-Fi coexistence is handled on-module; verify host-side arbitration needs
 
@@ -350,7 +352,7 @@ flowchart LR
 
 - Logging via Zephyr `log` → RTT; `shell` enabled in dev builds only
 - Unit tests: `ztest` + **Twister**; library/UI logic additionally run on `native_sim`
-- HIL bench at M1+: MIMXRT700-EVK + IW612 module DVK + CS43131 eval; audio analyzer
+- HIL bench at M1+: MIMXRT700-EVK + MAYA-W2 EVK + CS43131 eval; audio analyzer
   measurements at M4 (§10)
 
 ### 5.15 Firmware repository layout (planned)
@@ -383,14 +385,14 @@ firmware/
 
 ## 7. Compliance & Licensing
 
-- [ ] FCC Part 15 / CE RED — pre-certified IW6xx module carries the modular radio
-      grant; end-product testing still required (a radio-less SKU certifies as an
-      unintentional radiator only)
+- [ ] FCC Part 15 / CE RED — the pre-certified MAYA-W260 carries the modular radio
+      grant (with approved antennas); end-product testing still required (the DNP
+      radio-less SKU certifies as an unintentional radiator only)
 - [ ] Bluetooth SIG qualification (QDID) — budget line item
 - [ ] Battery transport (UN38.3), RoHS/REACH
 - [ ] Codec/FS patent review: exFAT, AAC (MP3 patents expired)
 - [ ] GPLv3 compatibility review: Apache-2.0 deps (Zephyr, hal_nxp) are one-way
-      compatible; the IW6xx radio firmware is an NXP binary loaded onto the module's
+      compatible; the IW611 radio firmware is an NXP binary loaded onto the module's
       own CPUs — separate hardware, clean aggregation ([ ] confirm redistribution
       terms for shipping it in images/repos)
 - [ ] HiFi4 DSP build uses the proprietary Cadence Xtensa toolchain — policy: DSP
@@ -402,13 +404,13 @@ firmware/
 - `osap_v1/` — this document, firmware (planned), hardware (planned)
 - `../osaplib/osapv1lib.kicad_sym` — shared KiCad symbol library
   - Note: contains STM32 symbols from an early architecture study (unused);
-    **RT700, PCA9422, CS43131, eUSB2 repeater, and M.2 socket symbols need to be drawn**
+    **RT700, PCA9422, CS43131, eUSB2 repeater, and MAYA-W260 symbols need to be drawn**
 
 ## 9. Risks & Open Questions
 
 | # | Risk / question | Impact | Next step |
 |---|---|---|---|
-| R1 | Zephyr Bluetooth **Classic host / A2DP source is experimental** — qualification depth unknown | v1 wireless feature | Prototype on RT700-EVK + IW612 DVK **before** EVT-1 layout; fallback: NXP EtherMind stack (license review) |
+| R1 | Zephyr Bluetooth **Classic host / A2DP source is experimental** — qualification depth unknown | v1 wireless feature | Prototype on RT700-EVK + MAYA-W2 EVK **before** EVT-1 layout; fallback: NXP EtherMind stack (license review) |
 | R2 | Color e-ink refresh latency hurts browsing UX | Usability | Panel eval; grayscale partial refresh |
 | R3 | Thin pouch cell sourcing at needed capacity | Battery life vs thickness | Cell vendor survey |
 | R4 | CS43131 integrated amp drive into high-impedance 1/4" cans | Audio target | Measure at EVT-1 (E8); fallback CS43198 + discrete amp |
@@ -416,7 +418,7 @@ firmware/
 | R6 | RT700 VDDIO domains / power-mode map unverified vs rail plan | Schematic rework | RM review before capture (EVT1 V2) |
 | R7 | RT700 audio MCLK output pin + PLL exact-rate/jitter for CS43131 direct MCLK **unverified** | Clocking | Verify RM at M1; CS43131 PLL-ref fallback (EVT1 V4) |
 | R8 | USB MTP class not upstream in Zephyr — custom work if chosen over MSC | FW effort | §5.9 trade study at M1 |
-| R9 | M.2 Key E pinout vs specific module straps may diverge | Radio socket | Pin against a specific Murata p/n early (EVT1 V6) |
+| R9 | MAYA-W260-00B lifecycle/availability flagged by one distributor | Radio sourcing | Confirm status with u-blox before layout; MAYA-W2 siblings as fallback (EVT1 V6) |
 | R10 | Aux-input function undefined (pass-through vs record) — record needs a discrete ADC | Architecture | Decide at M0 (§4.2) |
 | R11 | RT700 is young: thin errata history, newer Zephyr port, uSDHC instance count and packages unverified | Schedule/rework | RM + datasheet review at M1; RT700-EVK bring-up early |
 | R12 | HiFi4 Xtensa toolchain is proprietary (sense-subsystem HiFi1 likewise) | Open-source ethos | DSP strictly optional; M33 baseline full-featured (§7) |
@@ -426,9 +428,9 @@ firmware/
 ## 10. Roadmap (draft)
 
 - **M0** — Requirements finalized (fill every TBD in §2.2; aux decision R10)
-- **M1** — Dev-kit prototyping: MIMXRT700-EVK + IW612 module DVK + CS43131 eval
+- **M1** — Dev-kit prototyping: MIMXRT700-EVK + MAYA-W2 EVK + CS43131 eval
   board; local playback + **A2DP source proof** (retires R1); RM verifications
-  (R6/R7/R11)
+  (R6/R7/R11); u-blox lifecycle confirmation (R9)
 - **M2** — E-ink UI, dual-SD, and USB MSC/MTP working on the EVK bench
 - **M3** — **EVT-1**: first custom PCB, full feature set — see **[EVT1.md](EVT1.md)**
   (schematic in KiCad, `osaplib` symbols)
@@ -439,7 +441,8 @@ firmware/
 
 - NXP i.MX RT700: <https://www.nxp.com/products/i.MX-RT700> (EVK: MIMXRT700-EVK;
   Zephyr board docs: <https://docs.zephyrproject.org/latest/boards/nxp/mimxrt700_evk/doc/index.html>)
-- NXP IW612 tri-radio: <https://www.nxp.com/products/IW612> (datasheet: <https://www.nxp.com/docs/en/data-sheet/IW612.pdf>)
+- u-blox MAYA-W2 series (MAYA-W260-00B): <https://www.u-blox.com/en/product/maya-w2-series>
+- NXP IW61x tri-radio family reference: <https://www.nxp.com/products/IW612> (datasheet: <https://www.nxp.com/docs/en/data-sheet/IW612.pdf>)
 - NXP PCA9422 PMIC (charger + gauge, RT700 companion): <https://www.nxp.com/products/PCA9422>
 - TI TUSB2E11 eUSB2→USB 2.0 repeater: <https://www.ti.com/product/TUSB2E11>
 - Cirrus Logic CS43131 datasheet (DS1155F2): <https://statics.cirrus.com/pubs/proDatasheet/CS43131_DS1155F2.pdf>
@@ -472,8 +475,8 @@ firmware/
 | AVRCP | Audio/Video Remote Control Profile — headphone buttons (play/pause/skip) control our playback engine |
 | SBC | Subband Codec — A2DP's mandatory codec; encoded in firmware before streaming |
 | BR/EDR | Basic Rate / Enhanced Data Rate — "Bluetooth Classic", the mode A2DP runs on (vs LE) |
-| LE Audio / LC3 | The modern BLE-based audio system and its codec — a future addition once IW6xx support matures (§5.8) |
-| HCI | Host Controller Interface — the standard protocol between the Zephyr BT host (RT700) and the controller (IW6xx module, over UART) |
+| LE Audio / LC3 | The modern BLE-based audio system and its codec — a future addition once IW61x support matures (§5.8) |
+| HCI | Host Controller Interface — the standard protocol between the Zephyr BT host (RT700) and the controller (MAYA-W260 module, over UART) |
 | SIG | (Bluetooth) Special Interest Group — the standards body; products must be qualified with it |
 | QDID | Qualified Design ID — the Bluetooth SIG listing number a qualified product receives |
 
@@ -501,7 +504,7 @@ firmware/
 |---|---|
 | HiFi4 / HiFi1 | Cadence Tensilica audio DSP cores in the RT700 (main + low-power sense subsystem) — optional offload only |
 | XIP | eXecute In Place — running code directly from the external xSPI NOR boot flash |
-| SDIO / SDMMC | Native 4-bit SD card bus interfaces — RT700 uSDHC hosts; card 2 shares one with the radio socket via mux (R14) |
+| SDIO / SDMMC | Native 4-bit SD card bus interfaces — RT700 uSDHC hosts; card 2 shares one with the radio module via mux (R14) |
 | NVS | Non-Volatile Storage — Zephyr settings backend on a NOR-flash partition |
 | NVM | Non-Volatile Memory — generic term for persistent storage |
 | IPC | Inter-Processor Communication — M33 ↔ HiFi4 mailbox/shared-SRAM messaging (DSP build only) |
@@ -512,7 +515,8 @@ firmware/
 | RTT | Real-Time Transfer — SEGGER debug-probe channel used for log output |
 | DK / EVK | Development / Evaluation Kit (e.g., MIMXRT700-EVK) |
 | HIL | Hardware-In-the-Loop — automated tests run against real hardware |
-| M.2 Key E | Socket/card standard used by Wi-Fi/BT modules — the IW6xx radio socket format |
+| U.FL | Miniature coax RF connector — the MAYA-W260-00B has two (Wi-Fi + BT antennas) |
+| DNP | Do Not Populate — a build variant that omits a part; the radio-less SKU omits the MAYA-W260 |
 
 ### Project, compliance & licensing
 
